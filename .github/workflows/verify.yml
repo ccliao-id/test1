@@ -1,0 +1,175 @@
+name: Build & Wokwi Verify (Multi-Scenario)
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+
+  # ── 共用 build job，產出 firmware artifact ──────────────────────────
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio/.packages
+            ~/.platformio/.cache
+          key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+          restore-keys: pio-${{ runner.os }}-
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      - name: Build firmware
+        run: pio run
+
+      - name: Upload firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware
+          path: .pio/build/bluepill_f103c8/
+
+  # ── 情境 A：正常運作 ───────────────────────────────────────────────
+  scenario-normal:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download firmware
+        uses: actions/download-artifact@v4
+        with:
+          name: firmware
+          path: .pio/build/bluepill_f103c8/
+
+      - name: Install Wokwi CLI
+        run: curl -L https://wokwi.com/ci/install.sh | sh
+
+      - name: Run simulation (normal)
+        env:
+          WOKWI_CLI_TOKEN: ${{ secrets.WOKWI_CLI_TOKEN }}
+        run: |
+          wokwi-cli simulate --timeout 30000 --serial-log-file serial.log .
+
+      - name: Verify output
+        run: |
+          echo "=== Serial Output ==="
+          cat serial.log
+
+          grep -q "BOOT OK" serial.log \
+            || { echo "FAIL: missing BOOT OK"; exit 1; }
+          grep -qE "^TIME [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}$" serial.log \
+            || { echo "FAIL: TIME line missing or wrong format"; exit 1; }
+
+          echo "PASS: scenario-normal"
+
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: log-normal-${{ github.sha }}
+          path: serial.log
+
+  # ── 情境 B：無設備（預期輸出 ERROR NACK）─────────────────────────
+  scenario-no-device:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download firmware
+        uses: actions/download-artifact@v4
+        with:
+          name: firmware
+          path: .pio/build/bluepill_f103c8/
+
+      - name: Install Wokwi CLI
+        run: curl -L https://wokwi.com/ci/install.sh | sh
+
+      - name: Use no-device diagram
+        run: cp diagram-no-device.json diagram.json
+
+      - name: Run simulation (no device)
+        env:
+          WOKWI_CLI_TOKEN: ${{ secrets.WOKWI_CLI_TOKEN }}
+        run: |
+          wokwi-cli simulate --timeout 30000 --serial-log-file serial.log .
+
+      - name: Verify output
+        run: |
+          echo "=== Serial Output ==="
+          cat serial.log
+
+          grep -q "BOOT OK" serial.log \
+            || { echo "FAIL: missing BOOT OK"; exit 1; }
+          grep -qE "RETRY [0-9]+/[0-9]+ NACK" serial.log \
+            || { echo "FAIL: no RETRY line found"; exit 1; }
+          grep -q "ERROR NACK" serial.log \
+            || { echo "FAIL: missing ERROR NACK"; exit 1; }
+          grep -q "^TIME " serial.log \
+            && { echo "FAIL: TIME should not appear when device absent"; exit 1; } || true
+
+          echo "PASS: scenario-no-device"
+
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: log-no-device-${{ github.sha }}
+          path: serial.log
+
+  # ── 情境 C：延遲回應（預期先 RETRY 後 TIME）──────────────────────
+  scenario-slow-device:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download firmware
+        uses: actions/download-artifact@v4
+        with:
+          name: firmware
+          path: .pio/build/bluepill_f103c8/
+
+      - name: Install Wokwi CLI
+        run: curl -L https://wokwi.com/ci/install.sh | sh
+
+      - name: Use slow-device diagram
+        run: cp diagram-slow-device.json diagram.json
+
+      - name: Run simulation (slow device)
+        env:
+          WOKWI_CLI_TOKEN: ${{ secrets.WOKWI_CLI_TOKEN }}
+        run: |
+          wokwi-cli simulate --timeout 30000 --serial-log-file serial.log .
+
+      - name: Verify output
+        run: |
+          echo "=== Serial Output ==="
+          cat serial.log
+
+          grep -q "BOOT OK" serial.log \
+            || { echo "FAIL: missing BOOT OK"; exit 1; }
+          grep -qE "RETRY [0-9]+/[0-9]+ NACK" serial.log \
+            || { echo "FAIL: no RETRY line found"; exit 1; }
+          grep -qE "^TIME [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}$" serial.log \
+            || { echo "FAIL: TIME line missing after retry"; exit 1; }
+
+          echo "PASS: scenario-slow-device"
+
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: log-slow-device-${{ github.sha }}
+          path: serial.log
