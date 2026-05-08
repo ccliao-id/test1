@@ -60,7 +60,7 @@ jobs:
         env:
           WOKWI_CLI_TOKEN: ${{ secrets.WOKWI_CLI_TOKEN }}
         run: |
-          wokwi-cli "$GITHUB_WORKSPACE" --timeout 30000 --serial-log-file serial.log
+          wokwi-cli "$GITHUB_WORKSPACE" --timeout 30000 --serial-log-file serial.log --expect-text "TIME "
 
       - name: Verify output
         run: |
@@ -104,7 +104,7 @@ jobs:
         env:
           WOKWI_CLI_TOKEN: ${{ secrets.WOKWI_CLI_TOKEN }}
         run: |
-          wokwi-cli "$GITHUB_WORKSPACE" --timeout 30000 --serial-log-file serial.log
+          wokwi-cli "$GITHUB_WORKSPACE" --timeout 30000 --serial-log-file serial.log --expect-text "ERROR NACK"
 
       - name: Verify output
         run: |
@@ -152,7 +152,7 @@ jobs:
         env:
           WOKWI_CLI_TOKEN: ${{ secrets.WOKWI_CLI_TOKEN }}
         run: |
-          wokwi-cli "$GITHUB_WORKSPACE" --timeout 30000 --serial-log-file serial.log
+          wokwi-cli "$GITHUB_WORKSPACE" --timeout 30000 --serial-log-file serial.log --expect-text "TIME "
 
       - name: Verify output
         run: |
