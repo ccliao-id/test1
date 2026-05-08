@@ -16,14 +16,14 @@
       "top": 60,
       "left": 340,
       "attrs": {
-        "initTime": "2001-02-03T04:05:06"
+        "initTime": "2001-02-03T04:05:06Z"
       }
     }
   ],
   "connections": [
     ["mcu:PB6",  "rtc1:SCL", "#2196F3", []],
     ["mcu:PB7",  "rtc1:SDA", "#4CAF50", []],
-    ["mcu:3.3V", "rtc1:5V", "#EF5350", []],
+    ["mcu:5V", "rtc1:5V", "#EF5350", []],
     ["mcu:GND",  "rtc1:GND", "#424242", []]
   ],
   "dependencies": {}
