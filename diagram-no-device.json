@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "author": "Firmware Contest",
+  "editor": "wokwi",
+  "parts": [
+    {
+      "type": "board-bluepill-f103c8",
+      "id": "mcu",
+      "top": 60,
+      "left": 20,
+      "attrs": {}
+    }
+  ],
+  "connections": [],
+  "dependencies": {}
+}
