@@ -23,7 +23,7 @@
   "connections": [
     ["mcu:PB6",  "rtc1:SCL", "#2196F3", []],
     ["mcu:PB7",  "rtc1:SDA", "#4CAF50", []],
-    ["mcu:3.3V", "rtc1:VCC", "#EF5350", []],
+    ["mcu:5V", "rtc1:5V", "#EF5350", []],
     ["mcu:GND",  "rtc1:GND", "#424242", []]
   ],
   "dependencies": {}
