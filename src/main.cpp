@@ -1,87 +1,126 @@
 #include <Arduino.h>
 #include <Wire.h>
 
-#define DS1307_ADDR    0x68
-#define MAX_RETRY      3
-#define RETRY_DELAY_MS 300
+#define DS1307_ADDR 0x68
 
-static uint8_t bcdToDec(uint8_t bcd) {
-    return (bcd >> 4) * 10 + (bcd & 0x0F);
+enum RTCStatus {
+    RTC_OK = 0,
+    RTC_READ_FAILED = -1,
+    RTC_INVALID_DATA = -2
+};
+
+static uint8_t bcdToDec(uint8_t value) {
+    return ((value >> 4) * 10) + (value & 0x0F);
 }
 
-typedef enum {
-    I2C_OK = 0,
-    I2C_ERR_NACK,       // endTransmission 回傳 2 或 3
-    I2C_ERR_OTHER,      // endTransmission 回傳其他非零值
-    I2C_ERR_SHORT_READ, // requestFrom 回傳少於預期 byte 數
-} I2CStatus;
+static bool isValidTime(
+    uint16_t year,
+    uint8_t month,
+    uint8_t date,
+    uint8_t hours,
+    uint8_t minutes,
+    uint8_t seconds
+) {
+    if (year < 2000 || year > 2099) return false;
+    if (month < 1 || month > 12) return false;
+    if (date < 1 || date > 31) return false;
+    if (hours > 23) return false;
+    if (minutes > 59) return false;
+    if (seconds > 59) return false;
+    return true;
+}
 
-static I2CStatus readDS1307(uint16_t &year, uint8_t &month, uint8_t &day,
-                              uint8_t &hour, uint8_t &min,  uint8_t &sec) {
+static RTCStatus readDS1307(
+    uint16_t &year,
+    uint8_t &month,
+    uint8_t &date,
+    uint8_t &hours,
+    uint8_t &minutes,
+    uint8_t &seconds
+) {
     Wire.beginTransmission(DS1307_ADDR);
     Wire.write(0x00);
-    uint8_t err = Wire.endTransmission();
 
-    if (err == 2 || err == 3) return I2C_ERR_NACK;
-    if (err != 0)             return I2C_ERR_OTHER;
-
-    uint8_t n = Wire.requestFrom(DS1307_ADDR, 7);
-    if (n < 7) return I2C_ERR_SHORT_READ;
-
-    sec   = bcdToDec(Wire.read() & 0x7F);  // 0x00 seconds
-    min   = bcdToDec(Wire.read());          // 0x01 minutes
-    hour  = bcdToDec(Wire.read() & 0x3F);  // 0x02 hours
-    Wire.read();                            // 0x03 day-of-week (skip)
-    day   = bcdToDec(Wire.read());          // 0x04 date
-    month = bcdToDec(Wire.read());          // 0x05 month
-    year  = 2000 + bcdToDec(Wire.read());  // 0x06 year
-
-    return I2C_OK;
-}
-
-static const char* statusStr(I2CStatus s) {
-    switch (s) {
-        case I2C_ERR_NACK:       return "NACK";
-        case I2C_ERR_SHORT_READ: return "SHORT";
-        case I2C_ERR_OTHER:      return "ERR";
-        default:                 return "UNKNOWN";
+    if (Wire.endTransmission(false) != 0) {
+        return RTC_READ_FAILED;
     }
+
+    uint8_t received = Wire.requestFrom(DS1307_ADDR, 7);
+    if (received != 7) {
+        return RTC_READ_FAILED;
+    }
+
+    uint8_t rawSeconds = Wire.read();
+    uint8_t rawMinutes = Wire.read();
+    uint8_t rawHours = Wire.read();
+    Wire.read(); // day of week, not used
+    uint8_t rawDate = Wire.read();
+    uint8_t rawMonth = Wire.read();
+    uint8_t rawYear = Wire.read();
+
+    seconds = bcdToDec(rawSeconds & 0x7F);
+    minutes = bcdToDec(rawMinutes);
+    hours = bcdToDec(rawHours & 0x3F);
+    date = bcdToDec(rawDate);
+    month = bcdToDec(rawMonth);
+    year = 2000 + bcdToDec(rawYear);
+
+    if (!isValidTime(year, month, date, hours, minutes, seconds)) {
+        return RTC_INVALID_DATA;
+    }
+
+    return RTC_OK;
 }
 
 void setup() {
     Serial.begin(115200);
+    delay(100);
+
+    Wire.setSDA(PB7);
+    Wire.setSCL(PB6);
     Wire.begin();
 
     Serial.println("BOOT OK");
 
-    uint16_t year  = 0;
-    uint8_t  month = 0, day  = 0;
-    uint8_t  hour  = 0, min  = 0, sec = 0;
-    I2CStatus status = I2C_ERR_OTHER;
+    uint16_t year = 0;
+    uint8_t month = 0;
+    uint8_t date = 0;
+    uint8_t hours = 0;
+    uint8_t minutes = 0;
+    uint8_t seconds = 0;
 
-    for (int attempt = 1; attempt <= MAX_RETRY; attempt++) {
-        status = readDS1307(year, month, day, hour, min, sec);
-        if (status == I2C_OK) break;
+    RTCStatus status = RTC_READ_FAILED;
 
-        char msg[32];
-        snprintf(msg, sizeof(msg), "RETRY %d/%d %s",
-                 attempt, MAX_RETRY, statusStr(status));
-        Serial.println(msg);
-
-        if (attempt < MAX_RETRY) delay(RETRY_DELAY_MS);
+    for (int attempt = 0; attempt < 3; attempt++) {
+        status = readDS1307(year, month, date, hours, minutes, seconds);
+        if (status == RTC_OK) {
+            break;
+        }
+        delay(50);
     }
 
-    if (status == I2C_OK) {
-        char buf[32];
-        snprintf(buf, sizeof(buf),
-                 "TIME %04u-%02u-%02u %02u:%02u:%02u",
-                 year, month, day, hour, min, sec);
-        Serial.println(buf);
+    if (status == RTC_OK) {
+        char buffer[32];
+        snprintf(
+            buffer,
+            sizeof(buffer),
+            "TIME %04u-%02u-%02u %02u:%02u:%02u",
+            year,
+            month,
+            date,
+            hours,
+            minutes,
+            seconds
+        );
+        Serial.println(buffer);
+    } else if (status == RTC_INVALID_DATA) {
+        Serial.println("ERROR RTC_INVALID_DATA");
     } else {
-        char msg[24];
-        snprintf(msg, sizeof(msg), "ERROR %s", statusStr(status));
-        Serial.println(msg);
+        Serial.println("ERROR RTC_READ_FAILED");
     }
 }
 
+void loop() {
+    delay(1000);
+}
 void loop() {}
